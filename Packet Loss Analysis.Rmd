@@ -1,0 +1,175 @@
+---
+title: "Packet Loss Time Series Analysis"
+author: 'Orest Alickolli'
+date: "Jun 08, 2017"
+output:
+  html_document:
+    theme: cosmo
+---
+Load libraries
+
+```{r}
+library(magrittr)
+library(forecast)
+library(ggplot2)
+library(tseries)
+```
+
+
+
+Read-in Data
+```{r}
+# Read one hourly data:
+DFHour <- read.csv("videoHourly02.csv",header=TRUE,sep=",")
+# Calculate Percent Lost
+DFHour$packtsPcnt <- (DFHour$pcktsLost/DFHour$pcktsCount)*100
+DFAnalysis <- DFHour[,c(4,2,3,5)]
+```
+
+```{r}
+head(DFAnalysis)
+```
+
+Convert to Time Series
+
+```{r}
+pckt_data_full <- DFAnalysis$packtsPcnt%>%ts(start=c(0,1),frequency = 24)
+
+# Keep only first 21 days
+pckt_data <- pckt_data_full%>%subset.ts(end=21*24)
+# Create Test Set for one day in the future
+pckt_data_test <- pckt_data_full%>%subset.ts(start=21*24+1, end =  22*24)
+
+pckt_data%>%autoplot() + ylab("Percent Packet Lost (%)") + xlab("Time (Days/Hours)")
+```
+
+```{r}
+adf.test(pckt_data)
+```
+
+```{r}
+?kpss.test
+kpss.test(pckt_data, null="Trend")
+```
+
+Explore sesonality of the data
+
+```{r}
+pckt_data%>%ggsubseriesplot() + xlab("Hour of the day") + ylab("Percent Packet Lost (%)")
+```
+
+```{r}
+pckt_data%>%ggPacf() +ggtitle("Autocorrelation for Percent Package Loss Series")
+pckt_data%>%Box.test(type = "Ljung")
+?Box.test
+```
+
+```{r}
+ggsubseriesplot(pckt_data)
+ggseasonplot(pckt_data%>%subset(end=10*24))
+```
+
+
+
+```{r}
+library(TSA)
+pdg <- periodogram(pckt_data)
+pdg$spec%>%order
+
+1/pdg$freq[21]
+1/pdg$freq[85]
+1/pdg$freq[7]
+1/pdg$freq[64]
+```
+
+# Model Fitting
+
+## Seasonal Naive
+
+```{r}
+fitnaive <- snaive(pckt_data)
+fcnaive <- forecast(fitnaive,h=24)
+fcnaive%>%autoplot() + ylab("Percent Packet Lost (%)") + autolayer(pckt_data_test, size=0.2)
+accuracy(fcnaive,pckt_data_test)
+checkresiduals(fitnaive)
+```
+
+
+## ETS Model 
+
+```{r}
+fitexp <- ets(pckt_data)
+summary(fitexp)
+?ets
+```
+
+```{r}
+fcets <- fitexp%>%forecast(h=24)
+fcets%>%autoplot() +ylab("Percent Packet Lost (%)") + autolayer(pckt_data_test, size=0.2)
+accuracy(fcets,pckt_data_test)
+```
+
+```{r}
+checkresiduals(fitexp)
+?Box.test
+```
+
+
+
+## ARIMA Models
+
+```{r}
+BoxCox.lambda(pckt_data)
+autoplot(pckt_data)
+pckt_data%>%BoxCox(-0.303)%>%autoplot
+```
+
+
+ARIMA Models 
+
+
+```{r}
+arimafit <- auto.arima(pckt_data)
+summary(arimafit)
+```
+
+```{r}
+checkresiduals(arimafit)
+```
+
+
+
+
+```{r}
+fcarima<- arimafit%>% forecast(h=24)
+fcarima%>%autoplot() + ylab("Percent Packet Lost (%)") + autolayer(pckt_data_test, size=0.2)
+accuracy(fcarima, pckt_data_test)
+```
+
+
+
+## TBATS
+
+
+```{r}
+fitbats <- tbats(pckt_data)
+fctbats <- forecast(fitbats, h=24) 
+fctbats%>%autoplot() + ylab("Percent Packet Lost (%)") + autolayer(pckt_data_test, size=0.2)
+```
+
+```{r}
+accuracy(f = fctbats, pckt_data_test)
+```
+
+```{r}
+checkresiduals(fitbats)
+```
+
+
+
+
+
+
+
+
+
